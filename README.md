@@ -1,5 +1,3 @@
-# python
-
 # print('Welcome to the Pig Latin Translator!')
 #
 # pyg = "ay"
@@ -248,12 +246,149 @@
 # for name in names:
 #     print(name)
 
-webster = {
-    "Aardvark": "A star of a popular children's cartoon show.",
-    "Baa": "The sound a goat makes.",
-    "Carpet": "Goes on the floor.",
-    "Dab": "A small amount."
-}
+# webster = {
+#     "Aardvark": "A star of a popular children's cartoon show.",
+#     "Baa": "The sound a goat makes.",
+#     "Carpet": "Goes on the floor.",
+#     "Dab": "A small amount."
+# }
+#
+# for key in webster:
+#     print(webster[key])
+#
+# a = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+#
+# for num in a:
+#     if num % 2 == 0:
+#         print(num)
+#
+# def fizz_count(x):
+#     count = 0
+#
+#     for item in x:
+#         if item == 'fizz':
+#             count += 1
+#
+#     return count
+#
+# array = ["fizz", "cat", "fizz"]
+# print(fizz_count(array))
 
-for key in webster:
-    print(webster[key])
+# shopping_list = ["banana", "orange", "apple"]
+#
+# prices = {
+#     "banana": 4,
+#     "apple": 2,
+#     "orange": 1.5,
+#     "pear": 3
+# }
+#
+# stock = {
+#     "banana": 6,
+#     "apple": 0,
+#     "orange": 32,
+#     "pear": 15
+# }
+#
+#
+# def compute_bill(food):
+#     total = 0
+#
+#     for f in food:
+#         if stock[f] > 0:
+#             total += prices[f]
+#             stock[f] -= 1
+#
+#     return total
+
+# for key in prices:
+#     print(key)
+#     print("price: %s" % prices[key])
+#     print("stock: %s" % stock[key])
+#
+# total = 0
+#
+# for key in prices:
+#     earning = prices[key] * stock[key]
+#     print(earning)
+#     total += earning
+#
+# print(total)
+
+# Review
+# lloyd = {
+#     'name': "Lloyd",
+#     'homework': [90.0, 97.0, 75.0, 92.0],
+#     'quizzes': [88.0, 40.0, 94.0],
+#     'tests': [75.0, 90.0]
+# }
+# alice = {
+#     "name": "Alice",
+#     "homework": [100.0, 92.0, 98.0, 100.0],
+#     "quizzes": [82.0, 83.0, 91.0],
+#     "tests": [89.0, 97.0]
+# }
+# tyler = {
+#     "name": "Tyler",
+#     "homework": [0.0, 87.0, 75.0, 22.0],
+#     "quizzes": [0.0, 75.0, 78.0],
+#     "tests": [100.0, 100.0]
+# }
+# students = [
+#     lloyd, alice, tyler
+# ]
+
+
+# for student in students:
+#     print(student['name'])
+#     print(student['homework'])
+#     print(student['quizzes'])
+#     print(student['tests'])
+
+
+# def average(numbers):
+#     total = sum(numbers)
+#     return float(total) / len(numbers)
+#
+#
+# def get_average(student):
+#     homework = average(student['homework'])
+#     quizzes = average(student['quizzes'])
+#     tests = average(student['tests'])
+#
+#     return 0.1 * homework + 0.3 * quizzes + 0.6 * tests
+#
+#
+# def get_letter_grade(score):
+#     if score >= 90:
+#         return "A"
+#     elif score >= 80:
+#         return "B"
+#     elif score >= 70:
+#         return "C"
+#     elif score >= 60:
+#         return "D"
+#     else:
+#         return "F"
+#
+#
+# def get_class_average(students):
+#     results = []
+#     for stu in students:
+#         results.append(get_average(stu))
+#
+#     return average(results)
+#
+# print(get_class_average(students))
+# print(get_letter_grade(get_class_average(students)))
+
+
+# n = [1, 3, 5]
+# n[1] = n[1] * 5
+# n.append(4)
+# n.remove(1)
+# print(n)
+
+
+def string_function(s):
+    return s + 'world'
