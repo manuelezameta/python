@@ -1,0 +1,1017 @@
+Notes:
+
+build.gradle
+
+buildscript {
+    repositories {
+        maven {
+            url "https://oneartifactory.xxxxxx.com/artifactory/plugins-release"
+        }
+    }
+    dependencies {
+        classpath "org.jfrog.buildinfo:build-info-extractor-gradle:4.4.5"
+        classpath "org.springframework.boot:spring-boot-gradle-plugin:1.5.8.RELEASE"
+        classpath "com.google.guava:guava:19.0"
+    }
+}
+
+group 'com.verizon.msp'
+version '1.0-SNAPSHOT'
+
+apply plugin: "com.jfrog.artifactory"
+apply plugin: 'java'
+apply plugin: 'war'
+apply plugin: 'idea'
+apply plugin: 'org.springframework.boot'
+apply plugin: 'application'
+mainClassName = "com.xxx.boot.Application"
+
+repositories {
+    maven {
+        url "https://oneartifactory.xxxn.com/artifactory/plugins-release"
+    }
+
+}
+
+war {
+    archiveName 'stt.war'
+}
+
+artifactory {
+    contextUrl = "${artifactory_contextUrl}"   //The base Artifactory URL if not overridden by the publisher/resolver
+    publish {
+        repository {
+            repoKey = 'libs-release-local'
+            maven = true
+
+        }
+    }
+    resolve {
+        repository {
+            repoKey = 'XXXXXX'
+            maven = true
+
+        }
+    }
+}
+
+jar.baseName = 'sssda-services'
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+def lombok = "1.16.10"
+def guava = "19.0"
+def mybatis = "3.4.1"
+def mybatisSpring = "1.3.0"
+def springJdbc = "4.2.3.RELEASE"
+def ehcache = "2.6.11"
+
+dependencies {
+    //Spring Boot dependencies
+    compile "org.springframework.boot:spring-boot-starter"
+    compile "org.springframework.boot:spring-boot-starter-web"
+    compile "org.springframework:spring-context-support"
+    providedRuntime("org.springframework.boot:spring-boot-starter-tomcat")
+
+    //Persistence
+    compile "org.springframework:spring-jdbc"
+    compile "org.mybatis.spring.boot:mybatis-spring-boot-starter:1.3.1"
+    compile fileTree(dir: 'lib/database', include: ['*.jar'])
+
+    //ElasticSearch
+    compile "org.springframework.data:spring-data-elasticsearch"
+
+    //Cache
+    compile "net.sf.ehcache:ehcache-core:$ehcache"
+
+    //Util
+    compile "com.google.guava:guava:$guava"
+    compile "org.projectlombok:lombok:$lombok"
+    compile "org.apache.commons:commons-dbcp2:2.1.1"
+    compile "commons-collections:commons-collections:3.2.1"
+    compile "com.google.code.gson:gson:2.5"
+
+//ElasticSearch
+    compile "org.springframework.data:spring-data-elasticsearch"
+
+    testCompile group: 'junit', name: 'junit', version: '4.12'
+}
+
+
+------------------------------------------------------------------------
+application.yml
+
+server:
+  port: 8082
+  contextPath: /stt-service
+
+spring:
+  application:
+    name: pir
+  profiles:
+    active: production
+
+logging:
+  levels:
+    org.springframework.boot.env.PropertySourcesLoader: INFO
+    org.springframework.web: INFO
+    org.springframework.security: DEBUG
+
+---
+spring:
+  profiles: development
+  datasource:
+    url: jdbc:oracle:thin:@SERVER:PORT/SCHEMA
+    username: user
+    password: pwd
+    driver-class-name: oracle.jdbc.OracleDriver
+
+  elastic:
+    url: 10.74.17.16
+    port: 8081
+    cluster: elasticsearch
+    
+---
+spring:
+  profiles: production
+  datasource:
+    jndi-name: jdniname
+---------------------------------------------------------------------
+
+Application.java
+
+@SpringBootApplication
+@EnableAutoConfiguration
+@ComponentScan(basePackages = {"com.xxxx.root"})
+@MapperScan(basePackages = "com.xxxx.root.persistence.mapper", sqlSessionFactoryRef = "appSqlSessionFactory")
+public class Application extends SpringBootServletInitializer implements WebApplicationInitializer {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(Application.class);
+
+    private static Class<Application> applicationClass = Application.class;
+
+    @Autowired
+    DataSource appDataSource;
+
+    @Override
+    protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
+        return application.sources(applicationClass);
+    }
+
+    public static void main(String[] args) {
+        SpringApplication.run(applicationClass, args);
+    }
+
+    @Bean(name = "appTransactionManager")
+    public DataSourceTransactionManager appTransactionManager() {
+        return new DataSourceTransactionManager(espDataSource);
+    }
+
+    @Bean(name = "appSqlSessionFactory")
+    public SqlSessionFactory appSqlSessionFactory() {
+        SqlSessionFactoryBean sessionFactory = new SqlSessionFactoryBean();
+        sessionFactory.setDataSource(espDataSource);
+        sessionFactory.setTypeAliasesPackage("com.xxxx.root.persistence.entity");
+        SqlSessionFactory sqlSessionFactory = null;
+        try {
+            sqlSessionFactory = sessionFactory.getObject();
+        } catch (Exception ex) {
+            LOGGER.error(ex.getMessage(), ex);
+        }
+        return sqlSessionFactory;
+    }
+
+    @Bean
+    public CacheManager getEhCacheManager() {
+        return new EhCacheCacheManager(getEhCacheFactory().getObject());
+    }
+
+    @Bean
+    public EhCacheManagerFactoryBean getEhCacheFactory() {
+        EhCacheManagerFactoryBean factoryBean = new EhCacheManagerFactoryBean();
+        factoryBean.setConfigLocation(new ClassPathResource("ehcache.xml"));
+        factoryBean.setShared(true);
+        return factoryBean;
+    }
+}
+
+------------------------------------------
+ElasticSearchConfig
+
+@Configuration
+@EnableElasticsearchRepositories("com.verizon.msp.search.elastic.repository")
+public class ElasticSearchConfiguration {
+
+    /* Elastic Configuration*/
+    @Value("${spring.elastic.url}")
+    private String elasticServerUrl;
+
+    @Value("${spring.elastic.port}")
+    private String elasticServerPort;
+
+    @Value("${spring.elastic.cluster}")
+    private String elasticClusterName;
+
+    @Bean
+    public ElasticsearchOperations elasticsearchTemplate() throws UnknownHostException {
+        return new ElasticsearchTemplate(client());
+    }
+
+    @Bean
+    public Client client() throws UnknownHostException {
+        Settings settings = Settings.settingsBuilder()
+                .put(SearchConstants.CLUSTER_PROP, elasticClusterName)
+                .put(SearchConstants.IGNORE_CLUSTER_NAME_PROP, true)
+                .put(SearchConstants.NODE_CLIENT_PROP, true)
+                .put(SearchConstants.CLIENT_TRANSPORT_SNIFF_PROP, false).build();
+
+        InetAddress inetAddress = InetAddress.getByName(elasticServerUrl);
+        TransportAddress transportAddress = new InetSocketTransportAddress(inetAddress, Integer.valueOf(elasticServerPort));
+
+        TransportClient transportClient = TransportClient.builder().settings(settings).build();
+        transportClient.addTransportAddress(transportAddress);
+
+        return transportClient;
+    }
+
+    @Bean
+    public TransportClientFactoryBean createTransportClientFactoryBean() {
+        TransportClientFactoryBean clientFactoryBean = new TransportClientFactoryBean();
+        clientFactoryBean.setClusterNodes(elasticServerUrl + ":" + elasticServerPort);
+        clientFactoryBean.setClusterName(elasticClusterName);
+        clientFactoryBean.setClientIgnoreClusterName(true);
+        clientFactoryBean.setClientTransportSniff(false);
+
+        Properties properties = new Properties();
+        properties.put("cluster.name", "true");
+        properties.put("node.client", "true");
+        properties.put("client.transport.sniff", "false");
+        clientFactoryBean.setProperties(properties);
+        return clientFactoryBean;
+    }
+}
+-----------------------------------------
+
+index config 
+
+{
+  "index": {
+    "analysis": {
+      "filter": {
+        "nGram_filter": {
+          "token_chars": [
+            "letter",
+            "digit",
+            "punctuation",
+            "symbol"
+          ],
+          "min_gram": "2",
+          "type": "nGram",
+          "max_gram": "20"
+        }
+      },
+      "analyzer": {
+        "nGram_analyzer": {
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "nGram_filter"
+          ],
+          "type": "custom",
+          "tokenizer": "whitespace"
+        },
+        "whitespace_analyzer": {
+          "filter": [
+            "lowercase",
+            "asciifolding"
+          ],
+          "type": "custom",
+          "tokenizer": "whitespace"
+        }
+      }
+    }
+  }
+}
+
+
+---------------------------------------------
+customer_mapping.json
+
+{
+  "customer": {
+    "_all": {
+      "analyzer": "nGram_analyzer",
+      "search_analyzer": "whitespace_analyzer"
+    },
+    "properties": {
+      "addressId": {
+        "type": "long",
+        "index": "no",
+        "include_in_all": false
+      },
+      "customerId": {
+        "type": "long",
+        "include_in_all": false
+      },
+      "customerName": {
+        "type": "string",
+        "index": "not_analyzed"
+      },
+      "customer_suggest": {
+        "type": "completion",
+        "analyzer": "standard",
+        "payloads": true,
+        "preserve_separators": true,
+        "preserve_position_increments": true,
+        "max_input_length": 50
+      },
+      "dbDateModified": {
+        "type": "date",
+        "include_in_all": false
+      },
+      "id": {
+        "type": "string",
+        "include_in_all": false
+      },
+      "tags": {
+        "type": "string"
+      }
+    }
+  }
+}
+
+-----------------------------------------
+CustomerIndex
+
+@Document(indexName = "indexname", type = "customer")
+@Setting(settingPath = "/config/elasticsearch/index_settings.json")
+@Mapping(mappingPath = "/config/elasticsearch/customer_mapping.json")
+@Data
+@EqualsAndHashCode(callSuper = true)
+public class CustomerIndex extends Customer {
+    @Id
+    private String id;
+
+    private List<String> tags;
+
+    @CompletionField(payloads = true, searchAnalyzer = "standard", analyzer = "standard")
+    private Completion customer_suggest;
+
+}
+
+-------------------------------------------
+public interface CustomerRepository extends ElasticsearchRepository<CustomerIndex, String> {
+    CustomerIndex findByCustomerId(long customerId);
+}
+
+----------------------------------------
+@Data
+@EqualsAndHashCode(callSuper = false)
+public class CustomerSuggestObject extends Payload {
+
+    private long customerId;
+    private String name;
+
+    public CustomerSuggestObject(long customerId, String name) {
+        this.customerId = customerId;
+        this.name = name;
+    }
+
+    public CustomerSuggestObject(Map<String, Object> mapPayload) {
+        this.customerId = new Long(Objects.toString(mapPayload.get("customerId"), "0"));
+        this.name = Objects.toString(mapPayload.get(SearchConstants.SHORTNAME), "");
+    }
+}
+
+----------------------------------------------
+
+@Service
+@Scope(BeanDefinition.SCOPE_PROTOTYPE)
+public class SuggestService {
+    private static final Log LOGGER = LogFactory.getLog(SuggestService.class);
+
+    @Autowired
+    private ElasticSearchConfiguration esConfig;
+
+    private Client client;
+    SuggestRequestBuilder suggestRequestBuilder;
+
+    public SuggestService() {
+        //Just an empty Constructor for Autowiring
+    }
+
+    public SuggestService(Client client, SuggestRequestBuilder suggestRequestBuilder) {
+        this.client = client;
+        this.suggestRequestBuilder = suggestRequestBuilder;
+    }
+
+   
+    public SuggestionResponse suggest(SuggestionRequest suggestionRequest) throws UnknownHostException {
+        SuggestionResponse suggestionResponse = new SuggestionResponse();
+        String suggestTag = getSuggest(suggestionRequest.getSuggestHint());
+
+        if (Objects.isNull(client)) {
+            client = esConfig.client();
+        }
+        List<SuggestObject> suggesters = new ArrayList<>();
+
+        CompletionSuggestionBuilder compBuilder = new CompletionSuggestionBuilder(suggestTag);
+        compBuilder.text(suggestionRequest.getSuggestValue());
+        compBuilder.field(suggestTag);
+        compBuilder.size(EspSearchUtil.toNum(suggestionRequest.getSuggestLimit()));
+        String indexName = getIndexName(suggestionRequest.getSuggestHint());
+        suggestRequestBuilder = client.prepareSuggest(indexName);
+        suggestRequestBuilder.addSuggestion(compBuilder);
+        SuggestResponse suggestResponse;
+        CompletionSuggestion compSuggestion = new CompletionSuggestion();
+        try {
+            suggestResponse = suggestRequestBuilder.execute().actionGet();
+            compSuggestion = suggestResponse.getSuggest().getSuggestion(suggestTag);
+        } catch (NullPointerException nEx) {
+            LOGGER.error(nEx);
+        }
+
+        List<CompletionSuggestion.Entry> entryList = compSuggestion.getEntries();
+        if (Objects.nonNull(entryList) && entryList.size() > 0) {
+            CompletionSuggestion.Entry entry = entryList.get(0);
+            List<CompletionSuggestion.Entry.Option> options = entry.getOptions();
+            options.forEach(suggestion -> {
+                        Map<String, Object> mapPayload = suggestion.getPayloadAsMap();
+                        Payload payload = getPayload(mapPayload, suggestionRequest.getSuggestHint());
+                        SuggestObject suggestObject =
+                                new SuggestObject(suggestion.getText().string(), payload);
+                        suggesters.add(suggestObject);
+                    }
+            );
+        }
+
+        suggestionResponse.setResultList(suggesters);
+        return suggestionResponse;
+    }
+
+    private static String getIndexName(String suggestHint) {
+       return "indexname";
+    }
+
+    private static String getSuggest(String suggestHint) {
+       return "customer_suggest";
+    }
+
+    private static Payload getPayload(Map<String, Object> mapPayload, String suggestHint) {
+        Payload payload = new CustomerSuggestObject(mapPayload);
+
+        return payload;
+    }
+}
+
+--------------------------------------------------
+
+SearchService
+
+public SearchResponse searchCustomer(SearchRequest searchRequest) {
+        LOGGER.info("searchCustomer -- searchRequest: " + searchRequest);
+        SearchResponse searchResponse = new SearchResponse();
+        QueryBuilder matchQueryBuilder = QueryBuilders
+                .matchQuery(SearchConstants.ALL, searchRequest.getSearchValue())
+                .operator(MatchQueryBuilder.Operator.AND);
+        TermsQueryBuilder garmTermsQuery = QueryBuilders.termsQuery(SearchConstants.GARM_SENSITIVITY_LEVEL,
+                searchRequest.getApprovalLevelList() != null ? searchRequest.getApprovalLevelList().toArray() : "");
+        QueryBuilder queryBuilder = null;
+        List resultList = null;
+
+        try {
+            queryBuilder = QueryBuilders.boolQuery()
+                    .must(matchQueryBuilder)
+                    .must(garmTermsQuery);
+
+            if (1 == searchRequest.getShowAll()) {
+                LOGGER.info(queryBuilder.toString());
+                Iterable<CustomerIndex> results = customerRepository.search(queryBuilder);
+                resultList = Lists.newArrayList(results.iterator());
+            } else {
+                LOGGER.info(queryBuilder.toString());
+                Page<CustomerIndex> results = customerRepository.search(queryBuilder,
+                        new PageRequest(searchRequest.getPage(), searchRequest.getSize()));
+                resultList = Lists.newArrayList(results.iterator());
+                searchResponse.setTotalPages(results.getTotalPages());
+                searchResponse.setTotalElements(results.getTotalElements());
+            }
+        } catch (NullPointerException nEx) {
+            LOGGER.error(nEx);
+            LOGGER.error("No result from Elastic");
+        } catch (Exception ex) {
+            LOGGER.error(ex);
+            LOGGER.error("The following error appeared: " + ex);
+            LOGGER.error("Redirecting to getCallbackCustomers");
+            searchResponse.setElastic(false);
+            searchResponse.setMessage(SearchConstants.ES_DOWN_MSG);
+            searchResponse.setTotalPages(1);
+            resultList = getCallbackCustomers(searchRequest.getSearchValue());
+        }
+        if (Objects.nonNull(resultList)) {
+            searchResponse.setResultList(resultList);
+            searchResponse.setTotalElements(searchResponse.getTotalElements() > 0 ?
+                    searchResponse.getTotalElements() : resultList.size());
+        }
+        return searchResponse;
+    }
+
+
+-------------------------------------------
+Service
+@Service
+@Scope(BeanDefinition.SCOPE_PROTOTYPE)
+
+@Autowired
+private SomethingMapper mapper;
+
+
+------------------------------------------------------------------------
+Rest
+
+@RestController
+
+ @RequestMapping(value = "/something/{id}", method = RequestMethod.GET)
+    public Object getSomething(@PathVariable("id") long id) {
+        return service.getSomething(id);
+    }
+
+    @RequestMapping(value = "/something", method = RequestMethod.POST)
+    public SthResponse saveSomething(@RequestBody Something something) {
+        return service.saveSomething(something);
+    }
+
+
+-------------------------------------------------------------------------
+
+<select id="getSth" resultType="SaatTask" parameterType="String">
+        ....
+          AND upper(DESCRIPTION) LIKE '%' || UPPER(#{taskName}) || '%'
+</select>
+
+
+-------------------------------------
+<choose>
+<when test="column1 == 'ID'">
+, TABLE2.${column1}   <- column1 must be a column name 
+</when>
+<when test="column1 == 'NAME' or
+            column1 == 'LAST_NAME' or
+            column1 == 'PHONE'">
+   , TABLE.${column1}
+</when>
+ <otherwise> , COLUMN2 </otherwise>
+</choose>
+
+---------------------------------------
+                               		
+<if test="field1 == 'true' and idList != null">
+    <if test="idList.size() > 0">
+        AND id IN
+        <foreach item="item" index="index" collection="idList" open="(" separator="," close=")">
+            #{item}
+        </foreach>
+    </if>
+</if>
+
+ <![CDATA['D&I' ]]> 
+---------------------------------------
+where COLUMN4 <![CDATA[ < ]]> TO_DATE(#{value5}, 'MM/DD/YYYY')
+
+----------------------------------------------
+ClientBase
+
+/*
+
+public static final String itwHeaderNameSpace = "http://schemas.xmlsoap.org/ws/2002/07/secext";
+    public static final String itwSecurity = "Security";
+    public static final String itwUsernameToken = "UsernameToken";
+    public static final String itwUsername = "Username";
+    public static final String itwPassword = "Password";
+    public static final String itwwsse = "wsse";
+    public static final String itwType = "Type";
+    public static final String itwPasswordText = "wsse:PasswordText";
+
+  public static final String lrds_NameSpace1Uri = "http://webservice.addressvalidation.onestop.pros.vzb.com";
+    public static final String lrds_NameSpace1 = "ns1";
+    public static final String lrds_NameSpace2Uri = "http://model.common.prove.pros.mci.com";
+    public static final String lrds_NameSpace2 = "ns2";
+    public static final String lrds_NameSpace3Uri = "http://model.addressvalidation.onestop.pros.vzb.com";
+    public static final String lrds_NameSpace3 = "ns3";
+    public static final String METHOD_addAdress = "addAdress";
+*/
+
+@Service
+@Scope(BeanDefinition.SCOPE_PROTOTYPE)
+public class ClientBase {
+    private static final Log LOGGER = LogFactory.getLog(ClientBase.class);
+
+    @Inject
+    private ThirdPartyConfiguration thirdPartyConfiguration;
+
+    protected int connectionTimeout = 2500;
+    protected int readTimeout = 2500;
+    protected String soapAction = "SOAPAction";
+    protected String methodName;
+    protected String endPoint;
+
+    protected void populateSoapHeader(SOAPHeader header) throws SOAPException {
+        SOAPElement securityHeader = header.addChildElement(ThirdPartyConstants.itwSecurity,
+                ThirdPartyConstants.itwwsse, ThirdPartyConstants.itwHeaderNameSpace);
+        SOAPElement usernameToken = securityHeader.addChildElement(ThirdPartyConstants.itwUsernameToken,
+                ThirdPartyConstants.itwwsse, ThirdPartyConstants.itwHeaderNameSpace);
+        SOAPElement username = usernameToken.addChildElement(ThirdPartyConstants.itwUsername,
+                ThirdPartyConstants.itwwsse, ThirdPartyConstants.itwHeaderNameSpace);
+        username.addTextNode(thirdPartyConfiguration.getItwUser());
+        SOAPElement password = usernameToken.addChildElement(ThirdPartyConstants.itwPassword,
+                ThirdPartyConstants.itwwsse, ThirdPartyConstants.itwHeaderNameSpace);
+        password.setAttribute("Type", "wsse:PasswordText");
+        password.addTextNode(thirdPartyConfiguration.getItwPassword());
+    }
+
+    protected SOAPMessage createSoapRequest() throws SOAPException {
+        return null;
+    }
+
+    protected String makeSoapCall(SOAPMessage soapMessage) throws SOAPException {
+        String response = null;
+
+        try {
+            SOAPConnectionFactory soapConnectionFactory = SOAPConnectionFactory.newInstance();
+            SOAPConnection soapConnection = soapConnectionFactory.createConnection();
+
+            //With Connection Timeout
+            URL endpoint =
+                    new URL(new URL(this.endPoint), "",
+                            new URLStreamHandler() {
+                                @Override
+                                protected URLConnection openConnection(URL url) throws IOException {
+                                    URL target = new URL(url.toString());
+                                    URLConnection connection = target.openConnection();
+                                    // Connection settings
+                                    connection.setConnectTimeout(connectionTimeout);
+                                    connection.setReadTimeout(readTimeout);
+                                    return connection;
+                                }
+                            });
+
+            // Send SOAP Message to SOAP Server
+            SOAPMessage soapResponse;
+            soapResponse = soapConnection.call(soapMessage, endpoint);
+            LOGGER.info(this.endPoint + " Web-service call took done");
+
+            // print SOAP Response
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            soapResponse.writeTo(out);
+            response = new String(out.toByteArray());
+            LOGGER.info("SOAP Response : " + response);
+
+        } catch (MalformedURLException e) {
+            e.printStackTrace();
+            LOGGER.error(e);
+        } catch (IOException e) {
+            e.printStackTrace();
+            LOGGER.error(e);
+        }
+
+        return response;
+    }
+
+    protected void setEndPoint(String endPoint) {
+        this.endPoint = endPoint;
+    }
+
+    protected void setConnectionTimeout(int connectionTimeout) {
+        this.connectionTimeout = connectionTimeout;
+    }
+
+    protected void setReadTimeout(int readTimeout) {
+        this.readTimeout = readTimeout;
+    }
+}
+
+
+--------------------------------------------------------------------
+Client
+
+@Service
+@Scope(BeanDefinition.SCOPE_PROTOTYPE)
+public class LrdsClient extends ClientBase {
+
+    private static final Log LOGGER = LogFactory.getLog(LrdsClient.class);
+    private Lrds lrds;
+
+    @Inject
+    private ThirdPartyConfiguration thirdPartyConfiguration;
+
+    @PostConstruct
+    private void init() {
+        LOGGER.info("Lrds Initializing now");
+        setEndPoint(thirdPartyConfiguration.getLrdsEndPoint());
+        setConnectionTimeout(thirdPartyConfiguration.getLrdsConnectionTimeOut());
+        setReadTimeout(thirdPartyConfiguration.getLrdsReadTimeOut());
+    }
+
+    /**
+     * This method creates the required SOAP Request
+     *
+     * @return
+     * @throws SOAPException
+     */
+    @Override
+    protected SOAPMessage createSoapRequest() throws SOAPException {
+        MessageFactory messageFactory = MessageFactory.newInstance();
+        SOAPMessage soapMessage = messageFactory.createMessage();
+        SOAPPart soapPart = soapMessage.getSOAPPart();
+
+        // SOAP Envelope
+        SOAPEnvelope envelope = soapPart.getEnvelope();
+        envelope.addNamespaceDeclaration(ThirdPartyConstants.lrds_NameSpace1, ThirdPartyConstants.lrds_NameSpace1Uri);
+        envelope.addNamespaceDeclaration(ThirdPartyConstants.lrds_NameSpace2, ThirdPartyConstants.lrds_NameSpace2Uri);
+        envelope.addNamespaceDeclaration(ThirdPartyConstants.lrds_NameSpace3, ThirdPartyConstants.lrds_NameSpace3Uri);
+
+        // SOAP Header
+        populateSoapHeader(soapMessage.getSOAPHeader());
+
+        SOAPBody soapBody = envelope.getBody();
+        SOAPElement methodElement = soapBody.addChildElement(this.methodName, ThirdPartyConstants.lrds_NameSpace1);
+
+        SOAPElement hdr = methodElement.addChildElement("hdr", ThirdPartyConstants.lrds_NameSpace1);
+        SOAPElement clientName = hdr.addChildElement("clientName", ThirdPartyConstants.lrds_NameSpace2);
+        clientName.addTextNode("ESP");
+        SOAPElement clientVersion = hdr.addChildElement("clientVersion", ThirdPartyConstants.lrds_NameSpace2);
+        clientVersion.addTextNode(Objects.toString(this.lrds.getClientVersion(), "0.0"));
+
+        SOAPElement inputAddress = methodElement.addChildElement("inputAddress", ThirdPartyConstants.lrds_NameSpace1);
+        SOAPElement addressLine1 = inputAddress.addChildElement("addressLine1", ThirdPartyConstants.lrds_NameSpace3);
+        addressLine1.addTextNode(this.lrds.getAddressLine1());
+        SOAPElement addressLine2 = inputAddress.addChildElement("addressLine2", ThirdPartyConstants.lrds_NameSpace3);
+        addressLine2.addTextNode(this.lrds.getAddressLine2());
+        SOAPElement city = inputAddress.addChildElement("city", ThirdPartyConstants.lrds_NameSpace3);
+        city.addTextNode(this.lrds.getCity());
+        SOAPElement stateRegion = inputAddress.addChildElement("stateRegion", ThirdPartyConstants.lrds_NameSpace3);
+        stateRegion.addTextNode(this.lrds.getStateRegion());
+        SOAPElement postalCode = inputAddress.addChildElement("postalCode", ThirdPartyConstants.lrds_NameSpace3);
+        postalCode.addTextNode(this.lrds.getPostalCode());
+        SOAPElement country = inputAddress.addChildElement("country", ThirdPartyConstants.lrds_NameSpace3);
+        country.addTextNode(this.lrds.getCountry());
+
+        SOAPElement addressType = methodElement.addChildElement("addressType", ThirdPartyConstants.lrds_NameSpace1);
+        addressType.addTextNode("BLL");
+
+        SOAPElement outputOptions = methodElement.addChildElement("outputOptions", ThirdPartyConstants.lrds_NameSpace1);
+        SOAPElement usAscii = outputOptions.addChildElement("usAscii", ThirdPartyConstants.lrds_NameSpace3);
+        usAscii.addTextNode("false");
+        SOAPElement mixedCase = outputOptions.addChildElement("mixedCase", ThirdPartyConstants.lrds_NameSpace3);
+        mixedCase.addTextNode("false");
+        SOAPElement lookupId = outputOptions.addChildElement("lookupId", ThirdPartyConstants.lrds_NameSpace3);
+        lookupId.addTextNode("false");
+        SOAPElement formatMailingLines = outputOptions.addChildElement("formatMailingLines", ThirdPartyConstants.lrds_NameSpace3);
+        formatMailingLines.addTextNode("false");
+
+        MimeHeaders headers = soapMessage.getMimeHeaders();
+        headers.addHeader(soapAction, ThirdPartyConstants.lrds_NameSpace1Uri + this.methodName);
+
+        soapMessage.saveChanges();
+
+        /* Print the request message */
+        OutputStream out = new ByteArrayOutputStream();
+        try {
+            soapMessage.writeTo(out);
+            LOGGER.info("SOAP Request : " + out.toString());
+        } catch (IOException e) {
+            LOGGER.error(e);
+        }
+
+        return soapMessage;
+    }
+
+    /**
+     * Populate Prove object from the given xml
+     *
+     * @param lrdsResponse
+     */
+    private void parseProveXml(String lrdsResponse) {
+        try {
+            Document document = null;
+            DocumentBuilderFactory documentBuilderFactory = DocumentBuilderFactory.newInstance();
+            documentBuilderFactory.setNamespaceAware(true);
+            DocumentBuilder documentBuilder = documentBuilderFactory.newDocumentBuilder();
+            document = documentBuilder.parse(new InputSource(new StringReader(lrdsResponse)));
+
+            XPathFactory xpathFactory = XPathFactory.newInstance();
+            XPath xpath = xpathFactory.newXPath();
+
+            String addAddressReturnXpath = "//*[local-name() = 'Envelope']//*[local-name() = 'Body']//*[local-name() = 'addAdressResponse']//*[local-name() = 'addAdressReturn']";
+//            String errorCodeXpath = addAddressReturnXpath + "//*[local-name() = 'errorResponses']//*[local-name() = 'code']/text()";
+
+            XPathExpression expr = xpath.compile(addAddressReturnXpath);
+
+            /*String errorCode = Objects.toString(expr.evaluate(document, XPathConstants.STRING), "");
+            if (!StringUtils.equals("", errorCode)) {
+                LOGGER.info("Invalid Address (error code): " + errorCode);
+                this.prove.setValidAddress(false);
+            } else {*/
+            LOGGER.info("Valid Address ");
+            this.lrds.setValidAddress(true);
+            String validatedOfficeAddressXPath = addAddressReturnXpath + "//*[local-name() = 'validatedAddress']";
+            String addressLine1 = validatedOfficeAddressXPath + "//*[local-name() = 'addressLine1']/text()";
+            expr = xpath.compile(addressLine1);
+            this.lrds.setAddressLine1(Objects.toString(
+                    expr.evaluate(document, XPathConstants.STRING), ""));
+
+            String addressLine2 = validatedOfficeAddressXPath + "//*[local-name() = 'addressLine2']/text()";
+            expr = xpath.compile(addressLine2);
+            this.lrds.setAddressLine2(Objects.toString(
+                    expr.evaluate(document, XPathConstants.STRING), ""));
+
+            String city = validatedOfficeAddressXPath + "//*[local-name() = 'city']/text()";
+            expr = xpath.compile(city);
+            this.lrds.setCity(Objects.toString(
+                    expr.evaluate(document, XPathConstants.STRING), ""));
+
+            String stateRegion = validatedOfficeAddressXPath + "//*[local-name() = 'stateRegion']/text()";
+            expr = xpath.compile(stateRegion);
+            this.lrds.setStateRegion(Objects.toString(
+                    expr.evaluate(document, XPathConstants.STRING), ""));
+
+            String postalCode = validatedOfficeAddressXPath + "//*[local-name() = 'postalCode']/text()";
+            expr = xpath.compile(postalCode);
+            this.lrds.setPostalCode(Objects.toString(
+                    expr.evaluate(document, XPathConstants.STRING), ""));
+
+            String countryIso3Code = validatedOfficeAddressXPath + "//*[local-name() = 'countryIso3Code']/text()";
+            expr = xpath.compile(countryIso3Code);
+            this.lrds.setCountryIso3Code(Objects.toString(
+                    expr.evaluate(document, XPathConstants.STRING), ""));
+
+            String countryName = validatedOfficeAddressXPath + "//*[local-name() = 'countryName']/text()";
+            expr = xpath.compile(countryName);
+            this.lrds.setCountry(Objects.toString(
+                    expr.evaluate(document, XPathConstants.STRING), ""));
+//            }
+        } catch (ParserConfigurationException | SAXException | XPathExpressionException | IOException e) {
+            LOGGER.error(e);
+        }
+    }
+
+    /**
+     * External method to be called by others
+     * to validate the given address
+     *
+     * @param lrds
+     * @param methodName
+     * @return
+     */
+    public Lrds validateAddress(Lrds lrds, String methodName) {
+        try {
+            this.lrds = lrds;
+            this.methodName = methodName;
+
+            SOAPMessage soapMessage = createSoapRequest();
+            String proveResponse = makeSoapCall(soapMessage);
+            if (Objects.nonNull(proveResponse)) {
+                parseProveXml(proveResponse);
+                LOGGER.info("Parsing Prove xml done");
+            }
+
+        } catch (SOAPException soapEx) {
+            LOGGER.error(soapEx);
+        }
+
+        return this.lrds;
+    }
+
+
+}
+
+-----------------------------------------------------
+
+@Data
+public class Lrds {
+
+    /* hdr */
+    private String clientName;
+    private String clientVersion;
+
+    /* inputAddress */
+    private String addressLine1;
+    private String addressLine2;
+    private String city;
+    private String stateRegion;
+    private String postalCode;
+    private String country;
+
+    /* addressType */
+    private String addressType;
+
+    /* outputOptions */
+    private String usAscii;
+    private String mixedCase;
+    private String lookupId;
+    private String formatMailingLines;
+
+    /* response */
+    private String countryIso3Code;
+    private boolean validAddress;
+
+
+
+}
+
+---------------------------------
+
+@Data
+public class ThirdPartyRequest { 
+
+    /* Lrds related variable */
+    private Lrds lrds;
+
+}
+
+--------------------------------------------------------------------
+
+service
+
+  public Lrds validateInternationalAddress(Lrds lrds, String methodName) {
+        Lrds outLrds = null;
+        try {
+            if (Objects.nonNull(lrds)) {
+                outLrds = lrdsClient.validateAddress(lrds,
+                        Objects.toString(methodName, ThirdPartyConstants.METHOD_addAdress));
+            }
+        } catch (Exception ex) {
+            LOGGER.error(ex);
+        }
+        return outLrds;
+    }
+
+------------------------------
+
+
+  @RequestMapping(ThirdPartyConstants.REST_INT_ADDRESS_VALIDATE)
+    public Lrds validateInternationalAddress(@RequestBody ThirdPartyRequest request) {
+        LOGGER.info("validateInternationalAddress called : " + request.toString());
+        return thirdPartyService.validateInternationalAddress(request.getLrds(), request.getMethodName());
+    }
+
+---------------------
+
+thirdparty:
+  lrds: http://localhost:8083/thirdparty-service/thirdparty/addressI/validate
+
+Invoke
+
+private RestTemplate restTemplate = new RestTemplate();
+
+@Value("${thirdparty.lrds}")
+private String restLrds;
+
+public Lrds validateInternationalAddress(Lrds lrds) {
+        Lrds lrdsResponse = null;
+        ThirdPartyRequest thirdPartyRequest = new ThirdPartyRequest();
+        try {
+            thirdPartyRequest.setLrds(lrds);
+            LOGGER.info(REST_LOG + restLrds);
+            restTemplate.getMessageConverters().add(new MappingJackson2HttpMessageConverter());
+            HttpEntity<ThirdPartyRequest> request = new HttpEntity<>(thirdPartyRequest,
+                    getHeaders());
+            lrdsResponse = restTemplate.postForObject(restLrds, request, Lrds.class);
+            LOGGER.info(lrdsResponse.toString());
+        } catch (Exception ex) {
+            LOGGER.error(ex);
+        }
+        return lrdsResponse;
+    }
+
+---------------------------------------------------------
+ehcache.xml
+
+<?xml version="1.0" encoding="UTF-8"?>
+<ehcache xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="http://www.ehcache.org/ehcache.xsd"
+         updateCheck="true" monitoring="autodetect" dynamicConfig="true">
+    <cache name="projectStatus"
+           maxEntriesLocalHeap="50000"
+           maxEntriesLocalDisk="50000"
+           eternal="false"
+           diskSpoolBufferSizeMB="20"
+           timeToIdleSeconds="600"
+           timeToLiveSeconds="3600"
+           memoryStoreEvictionPolicy="LFU"
+           transactionalMode="off">
+        <persistence strategy="localTempSwap"/>
+    </cache>
+</ehcache>
+
+
+-----------------------------------
+CacheService
+
+ @Cacheable("projectStatus")
+    public List<Lookup> getProjectStatus() {
+        return lookupMapper.getProjectStatus();
+    }
+
+------------------------------------------------------------
